@@ -2,11 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Social Empires Unit &amp; Silhouette Guide</title>
 <style>
   body { font-family: Segoe UI, Arial, sans-serif; background: #14171f; color: #e8ecf4; margin: 0; padding: 20px; }
   h1 { margin: 0 0 8px; font-size: 22px; }
   .controls { position: sticky; top: 0; background: #1c212d; padding: 14px; border-radius: 10px; border: 1px solid #2e364a; margin-bottom: 16px; z-index: 10; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  @media (max-width: 700px) { .controls { position: static; } }
   input, select, button { background: #11151d; color: #e8ecf4; border: 1px solid #3a445d; border-radius: 6px; padding: 7px 10px; font-size: 13px; }
   button { cursor: pointer; background: #2d5be3; border-color: #3d6bf0; font-weight: 600; }
   button.secondary { background: #262c3d; border-color: #3a445d; }
@@ -39,6 +41,8 @@
   </select>
   <select id="weightMode">
     <option value="0.7">Formula: 30% / 70% (1.4.07 Default)</option>
+    <option value="fb_sqrt">Formula: fbgamesweb Approx. (Sqrt 30/70, -10..+16)</option>
+    <option value="0.65">Formula: 35% / 65%</option>
     <option value="0.6">Formula: 40% / 60%</option>
     <option value="0.5">Formula: 50% / 50%</option>
   </select>
@@ -134,15 +138,25 @@ function calcOutcomes() {
   const bo1 = getBo(u1), bo2 = getBo(u2);
   const low = Math.min(bo1, bo2);
   const high = Math.max(bo1, bo2);
-  const wHigh = Number(weightEl.value);
-  const wLow = 1 - wHigh;
-  let base = Math.ceil(low * wLow + high * wHigh);
-  if (base < 10) base = 10;
 
+  let base, minOff, maxOff;
+  if (weightEl.value === "fb_sqrt") {
+    base = Math.max(10, Math.round(Math.pow(0.3 * Math.sqrt(low) + 0.7 * Math.sqrt(high), 2)));
+    minOff = -10;
+    maxOff = 16;
+  } else {
+    const wHigh = Number(weightEl.value);
+    const wLow = 1 - wHigh;
+    base = Math.max(10, Math.ceil(low * wLow + high * wHigh));
+    minOff = 0;
+    maxOff = 11;
+  }
+
+  const totalRolls = maxOff - minOff + 1;
   const counts = new Map();
   let highPoolRolls = 0;
-  for (let r = 0; r < 12; r++) {
-    let p = base + r;
+  for (let r = minOff; r <= maxOff; r++) {
+    let p = Math.max(1, base + r);
     if (p === high) p++;
     if (p > 400) {
       highPoolRolls++;
@@ -152,7 +166,12 @@ function calcOutcomes() {
       counts.set(res.id, (counts.get(res.id) || 0) + 1);
     }
   }
-  return { u1, u2, base, counts, highPoolRolls, maxPower, pool };
+  return {
+    u1, u2, base,
+    minP: Math.max(1, base + minOff),
+    maxP: base + maxOff,
+    totalRolls, counts, highPoolRolls, maxPower, pool
+  };
 }
 
 function render() {
@@ -186,12 +205,15 @@ function render() {
     const parts = [];
     for (const [uid, cnt] of sim.counts.entries()) {
       const u = sim.pool.find(x => x.id === uid);
-      parts.push(`${u.name} (${cnt}/12)`);
+      parts.push(`${u.name} (${cnt}/${sim.totalRolls})`);
     }
     if (sim.highPoolRolls > 0) {
-      parts.push(`Random 400-${sim.maxPower} pool (${sim.highPoolRolls}/12)`);
+      parts.push(`Random 400-${sim.maxPower} pool (${sim.highPoolRolls}/${sim.totalRolls})`);
     }
-    summaryEl.innerHTML = `Base power: <strong>${sim.base}</strong> (range ${sim.base}-${sim.base + 11}) &rarr; Possible: <strong>${parts.join(", ")}</strong>`;
+    const shownParts = parts.length > 10
+      ? parts.slice(0, 8).join(", ") + ` ... (+${parts.length - 8} more — check "Possible results only")`
+      : parts.join(", ");
+    summaryEl.innerHTML = `Base power: <strong>${sim.base}</strong> (range ${sim.minP}-${sim.maxP}) &rarr; Possible: <strong>${shownParts}</strong>`;
   }
 
   gridEl.innerHTML = "";
@@ -243,7 +265,7 @@ function render() {
     }
     const t = getTime(u);
     metaDiv.innerHTML = orderBadge + " "
-      + (rollCount ? `<span class="badge prob">${rollCount}/12</span> ` : "")
+      + (rollCount ? `<span class="badge prob">${rollCount}/${sim.totalRolls}</span> ` : "")
       + (inHighPool ? `<span class="badge prob">400+ pool</span> ` : "")
       + `<br>ID: ${u.id}`
       + (t ? `<br>Time: ${fmtTime(t)}` : "")
